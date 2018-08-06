@@ -1,0 +1,312 @@
+#!/bin/bash
+
+ # Copyright (C) 2018  Felix Nüsse
+ # Created on 06.08.2018 - 14:00
+ #
+ # Edited by: Felix Nüsse felix.nuesse(at)t-online.de
+ #
+ # This program is released under the GPLv3 license
+ #
+ # This program is free software; you can redistribute it and/or modify
+ # it under the terms of the GNU General Public License as published by
+ # the Free Software Foundation; either version 3 of the License, or
+ # (at your option) any later version.
+ #
+ # This program is distributed in the hope that it will be useful,
+ # but WITHOUT ANY WARRANTY; without even the implied warranty of
+ # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ # GNU General Public License for more details.
+ #
+ # You should have received a copy of the GNU General Public License
+ # along with this program; if not, write to the Free Software Foundation,
+ # Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
+ 
+#modify if you whish
+
+#quiet=0
+#error=1
+#verbose=2
+#debug=3
+
+
+logging=1
+printLog=1
+multi_thread_count=4
+
+#do not modify
+multi_thread_flag_set=0
+command_flag_set=0
+print_help=0
+command=""
+parameter_to_pass=()
+task_to_pass=()
+log_single_task=1
+
+function print_manual(){
+    echo ""
+    echo "This a multithread controller for programs. It can process multiple instances of an command at once."
+	echo "Usage: bash threadcontrol [--help || -h] [--multithread || -m] {threadcount} [--command || -c] {Parameters} [--tasks || -t] {tasks}"
+    echo "Note that when you enter conflicting parameters, the last one will be the one used. This means '-m 4 -m 8' will use 8 threads." | sed 's/\(.*\)/  \1/'
+    echo ""
+	print_manual_line "[--help || -h]" "Prints the help. If set, also prints help of "\$"command"
+    print_manual_line "[--multithread || -m]" "Enables Multithreading. Default is set to 4 threads. Accepts value (eg. -m 8 equals to 8 threads)"
+    print_manual_line "{threadcount}" "OPTIONAL: parameters passed to the command, seperated by spaces."
+	echo ""
+    print_manual_line "[--command || -c]" "Sets the command which should be executed"
+    print_manual_line "{command}" "NESSESSARY: command to be executed"
+    print_manual_line "{Parameters}" "OPTIONAL: parameters passed to the command, seperated by spaces."
+	print_manual_line "" "-m 4 -tower -m 8 will pass -tower to the command. If you have parameters which do conflict with one of the above, they need to be added to the command."
+	print_manual_line "" "Instead of '-c command_which_uses_m_as_parameter -m Hello_World', you would need to enter '"\""-c command_which_uses_m_as_parameter -m Hello_World"\""'"
+    echo ""
+	print_manual_line "[--tasks || -t]" "Sets the tasklist by which threads are created. A task is passed as the last parameter to the command."
+	print_manual_line "" "Every parameter passed between -c and -t will be treated as an commandparameter which will be passed to every thread. Every parameter after -t will be a task, which will be passed to a single thread."
+    print_manual_line "{tasks}" "OPTIONAL: tasks to be worked on in a thread."
+	
+    echo ""
+	#print_manual_line "" "All parameters which do not equal one of the above are treated as parameters for the command."
+	
+}
+
+function print_manual_line(){
+
+parameter=$1
+description=$2
+
+maxlenparam=$(($(tput cols) /3))
+maxlendescr=$(($(tput cols) - $maxlenparam -7))
+
+printparam=${parameter:0:$maxlenparam}
+printparamrest=${parameter:$maxlenparam:${#parameter}}
+printdescr=${description:0:$maxlendescr}
+printdescrrest=${description:$maxlendescr:${#description}}
+
+space=" "
+m=${#printparam}
+for ((n=$m;n<$maxlenparam;n++)); do printf "${space}"; done    
+
+printf "%.*s  :" $maxlenparam "$printparam"
+printf "    %.*s\n" $maxlendescr "$printdescr"
+
+paramlen=$((${#printparamrest} + ${#printdescrrest}))
+
+if [ $paramlen -gt 0 ] ;
+then
+	print_manual_line "$printparamrest" "$printdescrrest"
+fi
+}
+
+function log_always() {
+	echo "[INFO] ${1}"
+	log_print "[INFO]${1}"
+}
+function log_err() {
+	if [ $logging -ge 1 ] ;
+	then
+		echo "[ERR] $(date "+%F %T") ${1}"
+		log_print "[ERR] $(date "+%F %T") ${1}"
+	fi
+}
+function log() {
+	if [ $logging -ge 2 ] ;
+	then
+		echo "[LOG]$(date "+%F %T") ${1}"
+		log_print "[LOG]$(date "+%F %T") ${1}"
+	fi
+}
+function log_debug() {
+	if [ $logging -ge 3 ] ;
+	then
+		echo "[DEBUG] $(date "+%F %T") ${1}"
+		log_print "[DEBUG] $(date "+%F %T") ${1}"
+	fi
+}
+function log_print() {
+	if [ $printLog -eq 1 ] ;
+	then
+		echo "${1}">> log.txt
+	fi
+}
+
+
+function set_multithread_thread_value() {
+    regex='^[0-9]+$'
+	if [[ $var =~ $regex ]] ; 
+	then
+		multi_thread_count=$var
+		log "set threadcount to $var"
+	fi
+}
+
+if [ "$#" -eq 0 ]; then
+	print_manual
+    exit 1
+fi
+
+#Iterate over the parameter to find all entered ones
+for var in "$@"
+do
+    
+	if [ "$var" = '--help' -o "$var" = '-h' ]
+	then
+		print_help=1;
+	elif [ "$var" == '--multithreading' -o "$var" = '-m' ]; 
+	then
+		multi_thread_flag_set=1
+		log_debug "set $var"
+		shift
+	elif [ "$var" == '--command' -o "$var" = '-c' ]; 
+	then
+		command_flag_set=1
+		log_debug "set command: $var"
+		shift
+	elif [ "$var" == '--tasks' -o "$var" = '-t' ]; 
+	then
+		command_flag_set=0
+		log_debug "set command: $var"
+		shift
+	else
+		if [ $multi_thread_flag_set -eq 1 ] ;
+		then
+			set_multithread_thread_value $var
+			multi_thread_flag_set=0
+			shift
+		elif [ $command_flag_set -eq 1 ] ;
+		then
+			command=$var
+			command_flag_set=-1
+			log_debug "set command to $command"
+			shift
+		else
+			if [ $command_flag_set -eq -1 ] ;
+			then
+				log_debug "add '$var' to parameterlist"
+				parameter_to_pass+=("$var")
+			else
+				log_debug "add '$var' to tasklist"
+				task_to_pass+=("$var")
+			fi
+			shift
+		fi
+	fi
+
+	
+done
+
+if [ "$print_help" -eq "1" ]
+then
+	print_manual
+	
+	echo ""
+	echo ""
+	
+	
+	if ! [ -z "$command" ]
+	then
+	echo "Help for command:"
+	echo ""
+		$command "-h" 2>/dev/null || $command "--help" 2>/dev/null || (echo "No help available for command: '$command'" && echo "(Tried '$command -h' and '$command --help')")
+	fi
+	exit 1
+fi
+
+log_debug "params: ${parameter_to_pass[@]}"
+log "tasks: ${task_to_pass[@]}"
+
+startdate="$(date "+%F %T")"
+log_always "[INFO] Start at: $startdate"
+
+#If multithread is not set, use default processing.
+#if [ -z "$multi_thread" ]; then
+#	echo "Using a single thread!"
+#	for task in "${task_to_pass[@]}"
+#	do
+#		echo "$command ${parameter_to_pass[@]} $task "
+#		bash $command "${parameter_to_pass[@]}" "$task" 
+#	done
+#	exit 0
+#fi;
+
+#Count Tasks
+i=0;
+PidArray=()
+
+for task in "${task_to_pass[@]}"
+do
+	i=$((i+1))
+done
+log_always "$i tasks to do"
+
+usedThreads=0;
+processes_left=1;
+remainingTasks=$i;
+executedTasks=0;
+
+#The max thread number needs to be set. Default is 4.
+#While not all workers are used, create a new worker.
+#while [ "$usedThreads" -lt "$multi_thread_count" ]
+log_always "Using $multi_thread_count threads!"
+while [ "$remainingTasks" -gt "0" -o "$processes_left" -eq "1" ]
+do
+	
+	
+	#when a thread is available, assign task. If not, check the others.
+	if [ "$usedThreads" -lt  "$multi_thread_count" -a "$remainingTasks" -gt "0" ]
+	then
+		#While Tread available, assign task
+			
+		executedTasks=$((executedTasks+1))
+		
+		if ! [ -d "log/$startdate/$command/" ]
+		then
+			mkdir -p "log/$startdate/$command/"
+		fi
+		path="log/$startdate/$command/${executedTasks}_${task}"
+		
+		echo "Full command: bash $command ${parameter_to_pass[@]} $task" &>> "$path".params &
+		echo "Parameters: ${parameter_to_pass[@]}"&>> "$path".params &
+		echo "Task: $task"&>> "$path".params &
+		log "bash $command ${parameter_to_pass[@]} $task" 
+		nohup  "$command" "${parameter_to_pass[@]}" "$task"   &>> "$path".log &
+		
+	
+		log_debug "new task with id: $!"
+		PidArray+=("$!")
+		usedThreads=$((usedThreads+1))
+		remainingTasks=$((remainingTasks-1))
+		
+	fi
+
+	#validate if every task is still running
+		count_still_running=0;
+		for i in "${PidArray[@]}"
+		do
+			
+			if [ -z "${i}" ]
+			then
+				continue
+			fi
+						
+			
+			if [ -d "/proc/${i}" ]
+			then
+				log_debug echo "${i} process is running"
+				count_still_running=$((count_still_running+1))
+			else
+				log_debug "${i} process has stopped"
+				delete="${i}"
+				PidArray=("${PidArray[@]/$delete}")
+				usedThreads=$((usedThreads-1))
+			fi
+		done
+		
+		if [ "$count_still_running" -eq  "0" ]
+		then
+			log_always "all worker have stopped."
+			processes_left=0
+		else
+			echo "$count_still_running Jobs are still running."
+		fi
+	
+	#pause execution for 2 seconds, and then check again
+	sleep 2
+done
