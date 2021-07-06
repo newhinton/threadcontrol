@@ -266,7 +266,7 @@ do
 		echo "Parameters: ${parameter_to_pass[@]}"&>> "$path".params &
 		echo "Task: $task"&>> "$path".params &
 		log "bash $command ${parameter_to_pass[@]} $task" 
-		nohup  "$command" "${parameter_to_pass[@]}" "$task"   &>> "$path".log &
+		nohup $command "${parameter_to_pass[@]}" "$task"   &>> "$path".log &
 		
 	
 		log_debug "new task with id: $!"
