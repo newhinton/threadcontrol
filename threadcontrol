@@ -255,12 +255,13 @@ do
 		#While Tread available, assign task
 			
 		executedTasks=$((executedTasks+1))
+		task="${task_to_pass[$executedTasks]}"
 		
-		if ! [ -d "log/$startdate/$command/" ]
+		if ! [ -d "log/$startdate/" ]
 		then
-			mkdir -p "log/$startdate/$command/"
+			mkdir -p "log/$startdate/"
 		fi
-		path="log/$startdate/$command/${executedTasks}_${task}"
+		path="log/$startdate/${executedTasks}"
 		
 		echo "Full command: bash $command ${parameter_to_pass[@]} $task" &>> "$path".params &
 		echo "Parameters: ${parameter_to_pass[@]}"&>> "$path".params &
