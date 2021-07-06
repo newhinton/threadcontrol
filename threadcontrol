@@ -241,6 +241,11 @@ processes_left=1;
 remainingTasks=$i;
 executedTasks=0;
 
+trap 'tput cnorm; echo' EXIT
+trap 'exit 127' HUP INT TERM
+
+tput civis
+tput sc
 #The max thread number needs to be set. Default is 4.
 #While not all workers are used, create a new worker.
 #while [ "$usedThreads" -lt "$multi_thread_count" ]
@@ -248,7 +253,7 @@ log_always "Using $multi_thread_count threads!"
 while [ "$remainingTasks" -gt "0" -o "$processes_left" -eq "1" ]
 do
 	
-	
+	tput rc		
 	#when a thread is available, assign task. If not, check the others.
 	if [ "$usedThreads" -lt  "$multi_thread_count" -a "$remainingTasks" -gt "0" ]
 	then
@@ -267,6 +272,7 @@ do
 		echo "Parameters: ${parameter_to_pass[@]}"&>> "$path".params &
 		echo "Task: $task"&>> "$path".params &
 		log "bash $command ${parameter_to_pass[@]} $task" 
+		tput sc
 		nohup $command "${parameter_to_pass[@]}" "$task"   &>> "$path".log &
 		
 	
@@ -278,36 +284,41 @@ do
 	fi
 
 	#validate if every task is still running
-		count_still_running=0;
-		for i in "${PidArray[@]}"
-		do
-			
-			if [ -z "${i}" ]
-			then
-				continue
-			fi
-						
-			
-			if [ -d "/proc/${i}" ]
-			then
-				log_debug echo "${i} process is running"
-				count_still_running=$((count_still_running+1))
-			else
-				log_debug "${i} process has stopped"
-				delete="${i}"
-				PidArray=("${PidArray[@]/$delete}")
-				usedThreads=$((usedThreads-1))
-			fi
-		done
+	symbols=('-' '\' '|' '/')
+	count_still_running=0;
+	for i in "${PidArray[@]}"
+	do
 		
-		if [ "$count_still_running" -eq  "0" ]
+		if [ -z "${i}" ]
 		then
-			log_always "all worker have stopped."
-			processes_left=0
-		else
-			echo "$count_still_running Jobs are still running."
+			continue
 		fi
+
+		if [ -d "/proc/${i}" ]
+		then
+			log_debug echo "${i} process is running"
+			count_still_running=$((count_still_running+1))
+		else
+			log_debug "${i} process has stopped"
+			delete="${i}"
+			PidArray=("${PidArray[@]/$delete}")
+			usedThreads=$((usedThreads-1))
+		fi
+	done
+
+	if [ "$count_still_running" -eq  "0" ]
+	then
+		log_always "all worker have stopped."
+		processes_left=0
+	else
+		symb=$((checks % 4))
+		checks=$((checks+1))
+		printf "%s " ${symbols[symb]}
+		printf "$count_still_running Jobs are still running."
+	fi
 	
 	#pause execution for 2 seconds, and then check again
-	sleep 2
+	sleep 1
 done
+
+tput cvvis
